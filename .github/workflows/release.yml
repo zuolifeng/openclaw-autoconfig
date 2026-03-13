@@ -1,0 +1,149 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            arch: amd64
+            artifact_ext: zip
+          - os: macos-14
+            platform: macos
+            arch: arm64
+            artifact_ext: zip
+          - os: ubuntu-22.04
+            platform: linux
+            arch: amd64
+            artifact_ext: tar.gz
+          - os: windows-latest
+            platform: windows
+            arch: amd64
+            artifact_ext: zip
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pyinstaller
+
+      # Linux: install tkinter
+      - name: Install tkinter (Linux)
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      # macOS / Linux build
+      - name: Build (Unix)
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: |
+          python -m PyInstaller openclaw_autoconfig.spec --clean --noconfirm
+          mkdir -p dist/release
+          ARTIFACT_NAME="OpenClawAutoConfig-v${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}-${{ matrix.arch }}"
+          cd dist
+          if [ "${{ matrix.platform }}" = "macos" ] && [ -d "OpenClawAutoConfig.app" ]; then
+            zip -r "release/${ARTIFACT_NAME}.zip" "OpenClawAutoConfig.app"
+          elif [ "${{ matrix.platform }}" = "linux" ]; then
+            chmod +x OpenClawAutoConfig
+            tar -czf "release/${ARTIFACT_NAME}.tar.gz" OpenClawAutoConfig
+          else
+            zip -r "release/${ARTIFACT_NAME}.zip" OpenClawAutoConfig
+          fi
+
+      # Windows build
+      - name: Build (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          python -m PyInstaller openclaw_autoconfig.spec --clean --noconfirm
+          New-Item -ItemType Directory -Force -Path dist\release
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $artifactName = "OpenClawAutoConfig-v${version}-windows-amd64"
+          Compress-Archive -Path "dist\OpenClawAutoConfig.exe" -DestinationPath "dist\release\${artifactName}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenClawAutoConfig-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/release/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Create GitHub Release
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          mkdir -p release_files
+          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.exe" \) -exec cp {} release_files/ \;
+          echo "=== Release files ==="
+          ls -lh release_files/
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "OpenClaw AutoConfig v${{ steps.version.outputs.VERSION }}"
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## OpenClaw AutoConfig v${{ steps.version.outputs.VERSION }}
+
+            ### Downloads
+
+            | Platform | Architecture | File |
+            |----------|-------------|------|
+            | macOS    | Intel (amd64) | `OpenClawAutoConfig-v${{ steps.version.outputs.VERSION }}-macos-amd64.zip` |
+            | macOS    | Apple Silicon (arm64) | `OpenClawAutoConfig-v${{ steps.version.outputs.VERSION }}-macos-arm64.zip` |
+            | Linux    | amd64 | `OpenClawAutoConfig-v${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz` |
+            | Windows  | amd64 | `OpenClawAutoConfig-v${{ steps.version.outputs.VERSION }}-windows-amd64.zip` |
+
+            ### Installation
+            1. Download the file for your platform
+            2. Extract the archive
+            3. Run `OpenClawAutoConfig` (or `OpenClawAutoConfig.exe` on Windows)
+
+            ### Features
+            - One-click OpenClaw installation with auto environment detection
+            - Auto-switch between global/China npm mirrors
+            - Process monitoring and status dashboard
+            - Platform integrations: Feishu, QQ, WeChat Work, Telegram
+            - Chinese/English language support
+          files: release_files/*

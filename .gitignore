@@ -5,5 +5,9 @@ __pycache__/
 *.pyc
 .DS_Store
 *.pkg
-*.tar.gz
 *.msi
+
+# Build artifacts
+/dist/
+/build/
+*.spec.bak

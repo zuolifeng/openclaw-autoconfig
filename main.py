@@ -15,9 +15,23 @@ import sys
 import time
 import re
 
-SCRIPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-LOCALES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "locales")
+def _get_base_dir():
+    """Get base directory, compatible with PyInstaller bundled mode."""
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+def _get_runtime_dir():
+    """Get runtime directory for writable files (logs, config)."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = _get_base_dir()
+RUNTIME_DIR = _get_runtime_dir()
+SCRIPT_DIR = os.path.join(BASE_DIR, "scripts")
+LOG_DIR = os.path.join(RUNTIME_DIR, "logs")
+LOCALES_DIR = os.path.join(BASE_DIR, "locales")
 
 # ===== Theme Colors =====
 COLORS = {

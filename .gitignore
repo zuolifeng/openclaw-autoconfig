@@ -1,0 +1,9 @@
+/logs/
+*.log
+config/
+__pycache__/
+*.pyc
+.DS_Store
+*.pkg
+*.tar.gz
+*.msi
